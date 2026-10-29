@@ -8,10 +8,10 @@ function App() {
   const [hostId, setHostId] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState(null); // 'host' o 'guest'
-  
+
   // Estado del juego (El Host es el dueño de la verdad)
   const [game, setGame] = useState({ state: 'lobby', players: [], deckId: null, turnIndex: 0 });
-  
+
   // Referencias para las conexiones P2P
   const connections = useRef([]); // Para el Host
   const hostConnection = useRef(null); // Para el Guest
@@ -26,7 +26,7 @@ function App() {
   // Lógica del HOST: Escuchar conexiones entrantes
   useEffect(() => {
     if (!peer || role !== 'host') return;
-    
+
     peer.on('connection', (conn) => {
       conn.on('data', (data) => {
         if (data.type === 'JOIN') {
@@ -42,6 +42,8 @@ function App() {
       });
       connections.current.push(conn);
     });
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peer, role]);
 
   // Función del HOST: Enviar estado a todos los invitados
@@ -52,13 +54,14 @@ function App() {
   // El Host actualiza su estado y lo replica
   useEffect(() => {
     if (role === 'host') broadcast(game);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [game, role]);
 
   // Función del GUEST: Conectarse al Host
   const joinGame = (e) => {
     e.preventDefault();
     if (!hostId || !name) return;
-    
+
     const conn = peer.connect(hostId);
     conn.on('open', () => {
       conn.send({ type: 'JOIN', name });
@@ -89,11 +92,11 @@ function App() {
       hostConnection.current.send({ type: 'DRAW' }); // Pedir al Host que robe por mí
       return;
     }
-    
+
     // Solo el Host ejecuta la llamada a la API para mantener el estado sincronizado
     const res = await fetch(`https://deckofcardsapi.com/api/deck/${game.deckId}/draw/?count=1`);
     const data = await res.json();
-    
+
     if (data.success) {
       setGame(prev => {
         const newPlayers = [...prev.players];
@@ -113,7 +116,7 @@ function App() {
         <h1>Juego de Cartas (P2P sin Servidor)</h1>
         <div className="lobby-card">
           <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre..." />
-          
+
           <div style={{ marginTop: '2rem' }}>
             <h3>Crear Partida</h3>
             <p>Tu ID para compartir: <strong>{myId || 'Generando...'}</strong></p>
@@ -163,7 +166,7 @@ function App() {
           <div key={index} className={`player-zone ${index === game.turnIndex ? 'active-turn' : ''}`}>
             <h3>{player.name} {index === game.turnIndex && '🎲'}</h3>
             <div className="cards-container">
-              {player.hand.length === 0 ? <p className="empty-hand">Sin cartas</p> : 
+              {player.hand.length === 0 ? <p className="empty-hand">Sin cartas</p> :
                 player.hand.map((card, idx) => <img key={idx} src={card.image} alt={card.value} className="card-img" />)}
             </div>
           </div>
