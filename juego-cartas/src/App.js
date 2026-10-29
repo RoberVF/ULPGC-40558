@@ -1,176 +1,176 @@
-import { useState, useEffect, useRef } from 'react';
-import Peer from 'peerjs';
+import React, { useState } from 'react';
 import './App.css';
 
+const SUITS = ['H', 'D', 'C', 'S']; 
+const VALUES = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+
+// Lógica del Blackjack
+const getScore = (hand) => {
+  let score = 0, aces = 0;
+  hand.forEach(c => {
+    if (['J', 'Q', 'K'].includes(c.value)) score += 10;
+    else if (c.value === 'A') { score += 11; aces += 1; }
+    else score += parseInt(c.value);
+  });
+  while (score > 21 && aces > 0) { score -= 10; aces -= 1; }
+  return score;
+};
+
+const createDeck = () => {
+  let deck = [];
+  SUITS.forEach(s => {
+    VALUES.forEach(v => {
+      const valCode = v === '10' ? '0' : v;
+      deck.push({ value: v, image: `https://deckofcardsapi.com/static/img/${valCode}${s}.png` });
+    });
+  });
+  return deck.sort(() => Math.random() - 0.5); // Barajar
+};
+
 function App() {
-  const [peer, setPeer] = useState(null);
-  const [myId, setMyId] = useState('');
-  const [hostId, setHostId] = useState('');
-  const [name, setName] = useState('');
-  const [role, setRole] = useState(null); // 'host' o 'guest'
+  const [gameState, setGameState] = useState('lobby'); // lobby, playing, results
+  const [players, setPlayers] = useState([]);
+  const [playerName, setPlayerName] = useState('');
+  const [deck, setDeck] = useState([]);
+  const [dealer, setDealer] = useState([]);
+  const [turnIndex, setTurnIndex] = useState(0);
 
-  // Estado del juego (El Host es el dueño de la verdad)
-  const [game, setGame] = useState({ state: 'lobby', players: [], deckId: null, turnIndex: 0 });
-
-  // Referencias para las conexiones P2P
-  const connections = useRef([]); // Para el Host
-  const hostConnection = useRef(null); // Para el Guest
-
-  useEffect(() => {
-    const newPeer = new Peer();
-    newPeer.on('open', id => setMyId(id));
-    setPeer(newPeer);
-    return () => newPeer.destroy();
-  }, []);
-
-  // Lógica del HOST: Escuchar conexiones entrantes
-  useEffect(() => {
-    if (!peer || role !== 'host') return;
-
-    peer.on('connection', (conn) => {
-      conn.on('data', (data) => {
-        if (data.type === 'JOIN') {
-          setGame(prev => {
-            const newState = { ...prev, players: [...prev.players, { name: data.name, hand: [] }] };
-            broadcast(newState); // Avisar a todos del nuevo jugador
-            return newState;
-          });
-        }
-        if (data.type === 'DRAW') {
-          handleDrawCard(); // El Host procesa la petición de robar
-        }
-      });
-      connections.current.push(conn);
-    });
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peer, role]);
-
-  // Función del HOST: Enviar estado a todos los invitados
-  const broadcast = (state) => {
-    connections.current.forEach(conn => conn.send(state));
-  };
-
-  // El Host actualiza su estado y lo replica
-  useEffect(() => {
-    if (role === 'host') broadcast(game);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game, role]);
-
-  // Función del GUEST: Conectarse al Host
-  const joinGame = (e) => {
+  const addPlayer = (e) => {
     e.preventDefault();
-    if (!hostId || !name) return;
-
-    const conn = peer.connect(hostId);
-    conn.on('open', () => {
-      conn.send({ type: 'JOIN', name });
-      setRole('guest');
-    });
-    conn.on('data', (newState) => {
-      setGame(newState); // El invitado simplemente copia el estado del Host
-    });
-    hostConnection.current = conn;
-  };
-
-  // Función del HOST: Iniciar partida
-  const createHost = () => {
-    if (!name) return;
-    setRole('host');
-    setGame({ ...game, players: [{ name, hand: [] }] });
-  };
-
-  const startGame = async () => {
-    const res = await fetch('https://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1');
-    const data = await res.json();
-    setGame({ ...game, state: 'playing', deckId: data.deck_id });
-  };
-
-  // Función unificada para robar carta
-  const handleDrawCard = async () => {
-    if (role === 'guest') {
-      hostConnection.current.send({ type: 'DRAW' }); // Pedir al Host que robe por mí
-      return;
-    }
-
-    // Solo el Host ejecuta la llamada a la API para mantener el estado sincronizado
-    const res = await fetch(`https://deckofcardsapi.com/api/deck/${game.deckId}/draw/?count=1`);
-    const data = await res.json();
-
-    if (data.success) {
-      setGame(prev => {
-        const newPlayers = [...prev.players];
-        newPlayers[prev.turnIndex].hand.push(data.cards[0]);
-        return {
-          ...prev,
-          players: newPlayers,
-          turnIndex: (prev.turnIndex + 1) % newPlayers.length
-        };
-      });
+    if (playerName.trim() && players.length < 4) {
+      setPlayers([...players, { name: playerName, hand: [], status: 'playing' }]);
+      setPlayerName('');
     }
   };
 
-  if (!role) {
+  const startGame = () => {
+    let currentDeck = createDeck();
+    let newPlayers = players.map(p => ({
+      ...p,
+      hand: [currentDeck.pop(), currentDeck.pop()],
+      status: 'playing'
+    }));
+    
+    setDealer([currentDeck.pop(), currentDeck.pop()]);
+    setPlayers(newPlayers);
+    setDeck(currentDeck);
+    setTurnIndex(0);
+    setGameState('playing');
+  };
+
+  const nextTurn = (updatedPlayers) => {
+    if (turnIndex < updatedPlayers.length - 1) {
+      setTurnIndex(turnIndex + 1);
+    } else {
+      playDealer(currentDeck => currentDeck, updatedPlayers);
+    }
+  };
+
+  const hit = () => {
+    let currentDeck = [...deck];
+    let newPlayers = [...players];
+    newPlayers[turnIndex].hand.push(currentDeck.pop());
+    
+    if (getScore(newPlayers[turnIndex].hand) > 21) {
+      newPlayers[turnIndex].status = 'bust';
+      setPlayers(newPlayers);
+      setDeck(currentDeck);
+      nextTurn(newPlayers);
+    } else {
+      setPlayers(newPlayers);
+      setDeck(currentDeck);
+    }
+  };
+
+  const stand = () => {
+    let newPlayers = [...players];
+    newPlayers[turnIndex].status = 'stand';
+    setPlayers(newPlayers);
+    nextTurn(newPlayers);
+  };
+
+  const playDealer = (getCurrentDeck, currentPlayers) => {
+    let currentDeck = getCurrentDeck ? getCurrentDeck(deck) : [...deck];
+    let currentDealer = [...dealer];
+    
+    while (getScore(currentDealer) < 17) {
+      currentDealer.push(currentDeck.pop());
+    }
+    
+    setDealer(currentDealer);
+    setDeck(currentDeck);
+    setPlayers(currentPlayers || players);
+    setGameState('results');
+  };
+
+  const resetGame = () => setGameState('lobby');
+
+  if (gameState === 'lobby') {
     return (
       <div className="container">
-        <h1>Juego de Cartas (P2P sin Servidor)</h1>
+        <h1>♠️ Blackjack Local ♥️</h1>
         <div className="lobby-card">
-          <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Tu nombre..." />
-
-          <div style={{ marginTop: '2rem' }}>
-            <h3>Crear Partida</h3>
-            <p>Tu ID para compartir: <strong>{myId || 'Generando...'}</strong></p>
-            <button onClick={createHost} disabled={!myId || !name}>Ser el Host</button>
-          </div>
-
-          <hr style={{ margin: '2rem 0' }} />
-
-          <div style={{ marginTop: '2rem' }}>
-            <h3>Unirse a Partida</h3>
-            <input type="text" value={hostId} onChange={e => setHostId(e.target.value)} placeholder="ID del Host..." />
-            <button onClick={joinGame} disabled={!name || !hostId}>Conectarse</button>
-          </div>
+          <h2>Jugadores ({players.length}/4)</h2>
+          <form onSubmit={addPlayer}>
+            <input type="text" value={playerName} onChange={e => setPlayerName(e.target.value)} placeholder="Nombre..." />
+            <button type="submit" disabled={players.length >= 4 || !playerName.trim()}>Añadir</button>
+          </form>
+          <ul className="player-list">{players.map((p, i) => <li key={i}>👤 {p.name}</li>)}</ul>
+          {players.length > 0 && <button className="start-btn" onClick={startGame}>Repartir Cartas</button>}
         </div>
       </div>
     );
   }
 
-  if (game.state === 'lobby') {
-    return (
-      <div className="container">
-        <div className="lobby-card">
-          <h2>Sala de Espera ({game.players.length}/4)</h2>
-          <p>Tu rol: {role.toUpperCase()}</p>
-          {role === 'host' && <p>Comparte este ID: <strong>{myId}</strong></p>}
-          <ul className="player-list">
-            {game.players.map((p, i) => <li key={i}>👤 {p.name}</li>)}
-          </ul>
-          {role === 'host' && game.players.length > 0 && (
-            <button className="start-btn" onClick={startGame}>Empezar Partida</button>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const currentPlayer = game.players[game.turnIndex];
+  const dealerScore = getScore(dealer);
 
   return (
     <div className="container">
-      <header className="game-header">
-        <h1>Turno de: <span className="highlight">{currentPlayer?.name}</span></h1>
-        <button onClick={handleDrawCard} className="draw-btn">Robar Carta</button>
-      </header>
-      <div className="board">
-        {game.players.map((player, index) => (
-          <div key={index} className={`player-zone ${index === game.turnIndex ? 'active-turn' : ''}`}>
-            <h3>{player.name} {index === game.turnIndex && '🎲'}</h3>
-            <div className="cards-container">
-              {player.hand.length === 0 ? <p className="empty-hand">Sin cartas</p> :
-                player.hand.map((card, idx) => <img key={idx} src={card.image} alt={card.value} className="card-img" />)}
-            </div>
+      <div className="dealer-zone">
+        <h2>Croupier {gameState === 'results' ? `(Puntuación: ${dealerScore})` : ''}</h2>
+        <div className="cards-container">
+          {dealer.map((card, i) => (
+            <img key={i} src={(i === 1 && gameState === 'playing') ? 'https://deckofcardsapi.com/static/img/back.png' : card.image} alt="carta" className="card-img" />
+          ))}
+        </div>
+      </div>
+
+      {gameState === 'playing' && (
+        <div className="game-header">
+          <h1>Turno de: <span className="highlight">{players[turnIndex].name}</span></h1>
+          <div>
+            <button onClick={hit} className="draw-btn" style={{marginRight: '10px'}}>Pedir</button>
+            <button onClick={stand} className="stand-btn">Plantarse</button>
           </div>
-        ))}
+        </div>
+      )}
+
+      {gameState === 'results' && (
+        <button onClick={resetGame} className="start-btn" style={{marginBottom: '2rem'}}>Jugar otra vez</button>
+      )}
+
+      <div className="board">
+        {players.map((player, index) => {
+          const score = getScore(player.hand);
+          let resultText = '';
+          if (gameState === 'results') {
+            if (score > 21) resultText = '❌ Te pasaste';
+            else if (dealerScore > 21) resultText = '✅ Ganas (Croupier se pasó)';
+            else if (score > dealerScore) resultText = '✅ Ganas';
+            else if (score === dealerScore) resultText = '➖ Empate';
+            else resultText = '❌ Pierdes';
+          }
+
+          return (
+            <div key={index} className={`player-zone ${index === turnIndex && gameState === 'playing' ? 'active-turn' : ''}`}>
+              <h3>{player.name} - {score} pts</h3>
+              {resultText && <p style={{fontWeight: 'bold', color: score > 21 || (score < dealerScore && dealerScore <= 21) ? '#e74c3c' : '#2ecc71'}}>{resultText}</p>}
+              <div className="cards-container">
+                {player.hand.map((card, idx) => <img key={idx} src={card.image} alt="carta" className="card-img" />)}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

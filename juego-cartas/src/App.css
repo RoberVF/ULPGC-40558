@@ -138,3 +138,7 @@ button:disabled {
   color: #bdc3c7;
   font-style: italic;
 }
+
+.dealer-zone { background: rgba(0,0,0,0.8); padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem; }
+.stand-btn { background-color: #e67e22; color: white; font-size: 1.2rem; }
+.stand-btn:hover { background-color: #d35400; }
