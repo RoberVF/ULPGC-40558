@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import './App.css';
 
 function App() {
-  const [gameState, setGameState] = useState('lobby'); // lobby, playing
+  const [gameState, setGameState] = useState('lobby');
   const [deckId, setDeckId] = useState(null);
   const [players, setPlayers] = useState([]);
   const [playerName, setPlayerName] = useState('');
@@ -46,7 +46,6 @@ function App() {
           return newPlayers;
         });
         
-        // Pasar turno al siguiente jugador
         setTurnIndex((prevTurn) => (prevTurn + 1) % players.length);
       } else {
         alert("¡No quedan cartas en la baraja!");
